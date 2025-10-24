@@ -54,6 +54,7 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            times: [0; 411],
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -135,6 +136,31 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    /// 根据系统调用的id增加次数
+    pub fn increase_syscall_times(&self, id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        if id < inner.tasks[current].times.len() {
+            inner.tasks[current].times[id] += 1;
+        }
+        else {
+            println!("id > maxid");
+        }
+    }
+
+    /// 调用函数直接获取此时的调用次数
+    pub fn get_syscall_times(&self, id: usize) -> u32 {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        if id < inner.tasks[current].times.len() {
+            inner.tasks[current].times[id]
+        }
+        else {
+            println!("id > maxid");
+            0
+        }
+    }
 }
 
 /// Run the first task in task list.
@@ -168,4 +194,14 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// 包装到外部使用
+pub fn increase_syscall_times(id: usize) {
+    TASK_MANAGER.increase_syscall_times(id);
+}
+
+/// 包装到外部使用
+pub fn get_syscall_times(id: usize) -> u32{
+    TASK_MANAGER.get_syscall_times(id)
 }
