@@ -28,6 +28,9 @@ pub struct TaskControlBlock {
 
     /// Program break
     pub program_brk: usize,
+
+    /// The syscall times
+    pub times: [u32; 411],
 }
 
 impl TaskControlBlock {
@@ -55,6 +58,9 @@ impl TaskControlBlock {
             kernel_stack_top.into(),
             MapPermission::R | MapPermission::W,
         );
+
+        let times =  [0; 411];
+
         let task_control_block = Self {
             task_status,
             task_cx: TaskContext::goto_trap_return(kernel_stack_top),
@@ -63,6 +69,7 @@ impl TaskControlBlock {
             base_size: user_sp,
             heap_bottom: user_sp,
             program_brk: user_sp,
+            times,
         };
         // prepare TrapContext in user space
         let trap_cx = task_control_block.get_trap_cx();

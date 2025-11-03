@@ -153,6 +153,31 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+     /// 根据系统调用的id增加次数
+    pub fn increase_syscall_times(&self, id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        if id < inner.tasks[current].times.len() {
+            inner.tasks[current].times[id] += 1;
+        }
+        else {
+            println!("id > maxid");
+        }
+    }
+
+    /// 调用函数直接获取此时的调用次数
+    pub fn get_syscall_times(&self, id: usize) -> u32 {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        if id < inner.tasks[current].times.len() {
+            inner.tasks[current].times[id]
+        }
+        else {
+            println!("id > maxid");
+            0
+        }
+    }
 }
 
 /// Run the first task in task list.
@@ -201,4 +226,14 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// 包装到外部使用
+pub fn increase_syscall_times(id: usize) {
+    TASK_MANAGER.increase_syscall_times(id);
+}
+
+/// 包装到外部使用
+pub fn get_syscall_times(id: usize) -> u32{
+    TASK_MANAGER.get_syscall_times(id)
 }

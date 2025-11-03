@@ -179,3 +179,42 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
     }
     v
 }
+
+
+/// 写入用户空间
+pub fn write_to_user<T>(token: usize, ptr: *mut T, data: &T) -> Result<(), ()> {
+    let page_table = PageTable::from_token(token);
+    let mut start = ptr as usize;
+    let size = core::mem::size_of::<T>();
+    let end = start + size;
+    let mut bytes_written = 0;
+
+    let data_slice = unsafe {
+        core::slice::from_raw_parts(data as *const _ as *const u8, size)
+    };
+
+     while start < end {
+        let start_va = VirtAddr::from(start);
+        let mut vpn = start_va.floor();
+        let ppn = page_table.translate(vpn).unwrap().ppn();
+        vpn.step();
+        let mut end_va: VirtAddr = vpn.into();
+        end_va = end_va.min(VirtAddr::from(end));
+
+        // 这一页的结束地址正好对齐到页边界,否则需要截断到正确的偏移        
+        let dst_slice = if end_va.page_offset() == 0 {
+            &mut ppn.get_bytes_array()[start_va.page_offset()..]
+        } else {
+            &mut ppn.get_bytes_array()[start_va.page_offset()..end_va.page_offset()]
+        };
+
+        let bytes_this_page = dst_slice.len();
+        let src = &data_slice[bytes_written..bytes_written + bytes_this_page];
+        dst_slice.copy_from_slice(src);
+
+        bytes_written += bytes_this_page;
+        start = end_va.into();
+     }
+
+     Ok(())
+}
