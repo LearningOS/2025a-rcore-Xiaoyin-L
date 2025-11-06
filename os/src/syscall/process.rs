@@ -105,30 +105,58 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
+use crate::mm::write_to_user;
+use crate::timer::get_time_us;
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     trace!(
         "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+
+    // 仿照sys_write
+    let us = get_time_us();
+    let time_val = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+
+     match write_to_user(current_user_token(), _ts, &time_val) {
+        Ok(()) => 0,
+        Err(()) => -1,
+    }
 }
 
 /// YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
+
+pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
     trace!(
         "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let current_task = current_task().unwrap();
+    let mut inner = current_task.inner_exclusive_access();
+    
+    match inner.memory_set.mmap(start, len, port) {
+        true => 0,
+        false => -1,
+    }
 }
 
 /// YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
+pub fn sys_munmap(start: usize, len: usize) -> isize {
     trace!(
         "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let current_task = current_task().unwrap();
+    let mut inner = current_task.inner_exclusive_access();
+    
+    match inner.memory_set.munmap(start, len) {
+        true => 0,
+       false => {
+            -1
+        },
+    }
 }
 
 /// change data segment size
@@ -143,19 +171,52 @@ pub fn sys_sbrk(size: i32) -> isize {
 
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
-pub fn sys_spawn(_path: *const u8) -> isize {
+use crate::task::TaskControlBlock;
+pub fn sys_spawn(path: *const u8) -> isize {
     trace!(
         "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    // 参考exec读取输入
+    let token = current_user_token();
+    let path = translated_str(token, path);
+    let current_task = current_task().unwrap();
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
+        // 参考initproc & fork创建新进程
+        let task = Arc::new(TaskControlBlock::new(data));
+        let pid = task.pid.0;
+        // 设置父子进程引用
+        let mut parent_inner = current_task.inner_exclusive_access();
+        let mut child_inner = task.inner_exclusive_access();
+        child_inner.parent = Some(Arc::downgrade(&current_task));
+        parent_inner.children.push(task.clone());
+        drop(child_inner);
+
+        // add work
+        add_task(task);
+        pid as isize
+    } else {
+        -1
+    }
+
 }
 
 // YOUR JOB: Set task priority.
-pub fn sys_set_priority(_prio: isize) -> isize {
+use crate::task::BIG_STRIDE;
+pub fn sys_set_priority(prio: isize) -> isize {
     trace!(
         "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+
+    if prio < 2 {
+        return -1;
+    }
+
+    let current_task = current_task().unwrap();
+    let mut inner = current_task.inner_exclusive_access();
+    inner.priority = prio as usize;
+    inner.pass = BIG_STRIDE / (prio as usize);
+    drop(inner);
+    prio
 }
