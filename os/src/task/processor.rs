@@ -55,7 +55,15 @@ lazy_static! {
 pub fn run_tasks() {
     loop {
         let mut processor = PROCESSOR.exclusive_access();
-        if let Some(task) = fetch_task() {
+         // --- 更新当前任务状态 ---
+        if let Some(current) = processor.current.as_ref() {
+            let mut inner = current.inner_exclusive_access();
+            if inner.task_status == TaskStatus::Running {
+                inner.task_status = TaskStatus::Ready;
+            }
+        }
+        let current_pid = processor.current.as_ref().map(|t| t.pid.0);
+        if let Some(task) = fetch_task(current_pid) {
             let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
             // access coming task TCB exclusively
             let mut task_inner = task.inner_exclusive_access();

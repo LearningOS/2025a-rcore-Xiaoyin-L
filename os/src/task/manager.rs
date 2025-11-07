@@ -5,7 +5,7 @@ use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use lazy_static::*;
 use crate::task::TaskStatus;
-use crate::task::current_task;
+// use crate::task::current_task;
 ///A array of `TaskControlBlock` that is thread-safe
 pub struct TaskManager {
     ready_queue: VecDeque<Arc<TaskControlBlock>>,
@@ -24,7 +24,7 @@ impl TaskManager {
         self.ready_queue.push_back(task);
     }
     /// Take a process out of the ready queue
-    pub fn fetch(&mut self) -> Option<Arc<TaskControlBlock>> {
+    pub fn fetch(&mut self, current_pid: Option<usize>) -> Option<Arc<TaskControlBlock>> {
         println!("fetch called");
          //self.ready_queue.pop_front()
         if self.ready_queue.is_empty() {
@@ -32,14 +32,14 @@ impl TaskManager {
             return None;
         }
 
-        let current_pid = current_task().unwrap().pid.0; // 避免 inner_exclusive_access
-        println!("[fetch] current pid = {}", current_pid);
+        //let current_pid = current_task().unwrap().pid.0; // 避免 inner_exclusive_access
+        //println!("[fetch] current pid = {}", current_pid);
         let mut min_stride = usize::MAX;
         let mut min_index = 0;
         let mut index = 0;
         // find min stride and switch
         for task in self.ready_queue.iter() {
-            if task.pid.0 == current_pid {
+            if Some(task.pid.0) == current_pid {
                 index += 1;
                 continue;
             }
@@ -65,7 +65,7 @@ impl TaskManager {
         // update status and stride
         //let current_task = current_task().unwrap();
         // 获取当前任务
-        let current_task = current_task().unwrap();
+       /*  let current_task = current_task().unwrap();
         {
             let mut inner = current_task.inner_exclusive_access();
             if inner.task_status == TaskStatus::Running {
@@ -73,12 +73,12 @@ impl TaskManager {
             }
             drop(inner);
         }
-
+            
 
 
         if !self.ready_queue.iter().any(|t| t.pid.0 == current_pid) {
             self.ready_queue.push_back(current_task.clone());
-        }
+        }*/
 
         {
             let mut next_inner = next_task.inner_exclusive_access();
@@ -104,7 +104,7 @@ pub fn add_task(task: Arc<TaskControlBlock>) {
 }
 
 /// Take a process out of the ready queue
-pub fn fetch_task() -> Option<Arc<TaskControlBlock>> {
+pub fn fetch_task(current_pid: Option<usize>) -> Option<Arc<TaskControlBlock>> {
     //trace!("kernel: TaskManager::fetch_task");
-    TASK_MANAGER.exclusive_access().fetch()
+    TASK_MANAGER.exclusive_access().fetch(current_pid)
 }
