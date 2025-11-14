@@ -4,6 +4,7 @@
 //!
 //! `UPSafeCell<OSInodeInner>` -> `OSInode`: for static `ROOT_INODE`,we
 //! need to wrap `OSInodeInner` into `UPSafeCell`
+#![allow(missing_docs)]
 use super::File;
 use crate::drivers::BLOCK_DEVICE;
 use crate::mm::UserBuffer;
@@ -13,7 +14,8 @@ use alloc::vec::Vec;
 use bitflags::*;
 use easy_fs::{EasyFileSystem, Inode};
 use lazy_static::*;
-
+use crate::fs::StatMode;
+use crate::fs::Stat;
 /// inode in memory
 /// A wrapper around a filesystem inode
 /// to implement File trait atop
@@ -124,7 +126,8 @@ pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
         })
     }
 }
-
+use crate::task::current_user_token;
+use crate::mm::translated_refmut;
 impl File for OSInode {
     fn readable(&self) -> bool {
         self.readable
@@ -155,5 +158,19 @@ impl File for OSInode {
             total_write_size += write_size;
         }
         total_write_size
+    }
+    fn fstat(&self, st_ptr: *mut Stat) -> isize {
+        let token = current_user_token(); // 获取用户页表 token
+        let st = translated_refmut(token, st_ptr); // 获取可写引用（自动映射）
+        let inner = self.inner.exclusive_access();
+        *st = Stat {
+            dev: 0,
+            ino: inner.inode.inode_id(), 
+            mode: StatMode::FILE,
+            nlink: inner.inode.get_nlink(),
+            pad: [0; 7],
+        };
+
+        0 
     }
 }

@@ -2,6 +2,7 @@
 use crate::fs::{open_file, OpenFlags, Stat};
 use crate::mm::{translated_byte_buffer, translated_str, UserBuffer};
 use crate::task::{current_task, current_user_token};
+use crate::fs::ROOT_INODE;
 
 pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
     trace!("kernel:pid[{}] sys_write", current_task().unwrap().pid.0);
@@ -76,28 +77,75 @@ pub fn sys_close(fd: usize) -> isize {
 }
 
 /// YOUR JOB: Implement fstat.
-pub fn sys_fstat(_fd: usize, _st: *mut Stat) -> isize {
+pub fn sys_fstat(fd: usize, st: *mut Stat) -> isize {
     trace!(
         "kernel:pid[{}] sys_fstat NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+
+    let file = match inner.fd_table.get(fd) {
+        Some(f) => f.clone(),
+        None => return -1,
+    };
+    drop(inner);
+
+    file.unwrap().fstat(st)
+
 }
 
 /// YOUR JOB: Implement linkat.
-pub fn sys_linkat(_old_name: *const u8, _new_name: *const u8) -> isize {
+pub fn sys_linkat(old_name: *const u8, new_name: *const u8) -> isize {
     trace!(
         "kernel:pid[{}] sys_linkat NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+
+    let token = current_user_token();
+    let old_path = translated_str(token, old_name);
+    let new_path = translated_str(token, new_name);
+
+    if old_path == new_path {
+        return -1; 
+    }
+    debug!("start creare_line");
+    // 创建硬链接
+    if ROOT_INODE.create_link(&old_path, &new_path).is_err() {
+        return -1;
+    }
+
+    /*// 增加链接计数
+    let old_inode = ROOT_INODE.find(&old_path);
+    if old_inode.is_none() {
+        return -1;
+    }
+    let old_inode = old_inode.unwrap();
+    old_inode.increase_nlink();
+    */
+
+    0
+
 }
 
 /// YOUR JOB: Implement unlinkat.
-pub fn sys_unlinkat(_name: *const u8) -> isize {
+pub fn sys_unlinkat(name: *const u8) -> isize {
     trace!(
         "kernel:pid[{}] sys_unlinkat NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    
+    let token = current_user_token();
+    let path_str = translated_str(token, name);
+    
+    if path_str.is_empty() {
+        return -1;
+    }
+
+    // 实现一个delete函数删除指定目录项
+    if ROOT_INODE.delete_link(&path_str).is_err() {
+        return -1;
+    }
+    
+    0
 }
