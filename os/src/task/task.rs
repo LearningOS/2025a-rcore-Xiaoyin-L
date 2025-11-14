@@ -10,7 +10,7 @@ use alloc::sync::{Arc, Weak};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefMut;
-
+use crate::task::BIG_STRIDE;
 /// Task control block structure
 ///
 /// Directly save the contents that will not change during running
@@ -71,6 +71,10 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    pub stride: usize,   //初始为0
+    pub pass: usize,     // BIG_STRIDE / priority
+    pub priority: usize, // 初始为16
 }
 
 impl TaskControlBlockInner {
@@ -111,6 +115,8 @@ impl TaskControlBlock {
         let pid_handle = pid_alloc();
         let kernel_stack = kstack_alloc();
         let kernel_stack_top = kernel_stack.get_top();
+        let priority= 16;
+        let pass = BIG_STRIDE / priority;
         // push a task context which goes to trap_return to the top of kernel stack
         let task_control_block = Self {
             pid: pid_handle,
@@ -135,6 +141,9 @@ impl TaskControlBlock {
                     ],
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    stride: 0,
+                    priority,
+                    pass,
                 })
             },
         };
@@ -216,6 +225,9 @@ impl TaskControlBlock {
                     fd_table: new_fd_table,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    stride: parent_inner.stride,
+                    priority: parent_inner.priority,
+                    pass: parent_inner.pass,
                 })
             },
         });

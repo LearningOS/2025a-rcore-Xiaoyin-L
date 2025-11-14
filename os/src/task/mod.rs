@@ -13,6 +13,9 @@
 //!
 //! Be careful when you see `__switch` ASM function in `switch.S`. Control flow around this function
 //! might not be what you expect.
+
+///不知道如何选取，查阅得知，这个数据是有符号32位整数最大值，避免溢出
+pub const BIG_STRIDE: usize = 10000; 
 mod context;
 mod id;
 mod manager;

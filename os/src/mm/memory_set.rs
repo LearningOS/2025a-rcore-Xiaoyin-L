@@ -318,6 +318,98 @@ impl MemorySet {
             false
         }
     }
+
+    /// 实现映射
+    pub fn mmap(&mut self, start: usize, len: usize, prot: usize) -> bool  {
+        
+        // 检查页对齐和flags
+        if start % PAGE_SIZE !=0 {
+            return false;
+        }
+         if prot & !0x7 != 0 {
+            return false;
+        }
+        if prot & 0x7 == 0 {
+            return false;
+        }
+
+        let pg_cnt = (len + PAGE_SIZE - 1) / PAGE_SIZE;
+        let end = start + pg_cnt * PAGE_SIZE;
+        let start_va = VirtAddr::from(start);
+        let end_va = VirtAddr::from(end);
+
+        let mut current = start;
+        while current < end {
+            let current_va = VirtAddr::from(current);
+            let current_vpn = current_va.floor();
+
+            if let Some(pte) = self.page_table.translate(current_vpn) {
+                if pte.flags().contains(PTEFlags::V){
+                    println!("error: reuse this page when {:#x}  {:#x}", current_vpn.0, end);
+                    return false;
+                }
+            }
+            current = current + PAGE_SIZE;
+        }
+        
+         // 设置flag
+         let mut map_perm = MapPermission::U;
+        if prot & 0x1 != 0 {
+            map_perm |= MapPermission::R;
+        }
+        if prot & 0x2 != 0 {
+            map_perm |= MapPermission::W;
+        }
+        if prot & 0x4 != 0 {
+            map_perm |= MapPermission::X;
+        }
+        if len == 0 {
+            return true;  
+        }
+
+        let map_area = MapArea::new(
+            start_va,
+            end_va,
+            MapType::Framed,  
+            map_perm,
+        );
+
+        self.push(map_area, None);
+
+        return true;
+    }
+
+    /// 实现解映射
+    pub fn munmap(&mut self, start: usize, len: usize) -> bool {
+        if start % PAGE_SIZE != 0 {
+            return false;
+        }
+        if len == 0 {  
+            return true;
+        }
+        
+        let pg_cnt = (len + PAGE_SIZE - 1) / PAGE_SIZE;
+        let end = start + pg_cnt * PAGE_SIZE;
+        let start_va = VirtAddr::from(start);
+
+        let mut current = start;
+        while current < end {
+            let current_va = VirtAddr::from(current);
+            let current_vpn = current_va.floor();
+
+            if let Some(pte) = self.page_table.translate(current_vpn) {
+                if !pte.flags().contains(PTEFlags::V){
+                    println!("error: reuse this page when {:#x}  {:#x}", current_vpn.0, end);
+                    return false;
+                }
+            }
+            current = current + PAGE_SIZE;
+        }
+        
+        self.remove_area_with_start_vpn(start_va.floor());
+
+        return true;
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {
