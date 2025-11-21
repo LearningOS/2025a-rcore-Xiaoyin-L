@@ -41,7 +41,7 @@ pub fn sys_mutex_create(blocking: bool) -> isize {
         Some(Arc::new(MutexBlocking::new()))
     };
     let mut process_inner = process.inner_exclusive_access();
-    if let Some(id) = process_inner
+    let  mutex_id = if let Some(id) = process_inner
         .mutex_list
         .iter()
         .enumerate()
@@ -53,7 +53,16 @@ pub fn sys_mutex_create(blocking: bool) -> isize {
     } else {
         process_inner.mutex_list.push(mutex);
         process_inner.mutex_list.len() as isize - 1
+    };
+
+    // 注册新的互斥锁资源
+     if let Some(ref mut detector) = process_inner.deadlock_detector {
+        if mutex_id >= detector.resource_count as isize {
+            detector.add_mutex();
+        }
     }
+    
+    mutex_id
 }
 /// mutex lock syscall
 pub fn sys_mutex_lock(mutex_id: usize) -> isize {
@@ -69,7 +78,27 @@ pub fn sys_mutex_lock(mutex_id: usize) -> isize {
             .tid
     );
     let process = current_process();
-    let process_inner = process.inner_exclusive_access();
+    let mut process_inner = process.inner_exclusive_access();
+
+    let current_task = current_task().unwrap();
+        let thread_tid = {
+            let task_inner = current_task.inner_exclusive_access();
+            task_inner.res.as_ref().unwrap().tid  // 从TaskUserRes获取tid
+        };
+        println!("[DEBUG] sys_mutex_lock: thread_tid={}, mutex_id={}", thread_tid, mutex_id);
+
+    // 死锁检测
+    if let Some(ref mut detector) = process_inner.deadlock_detector {
+        
+        
+        if !detector.check_safty(thread_tid, mutex_id) {
+            trace!("Deadlock detected for mutex {} by thread {}", mutex_id, thread_tid);
+            return -0xDEAD;
+        }
+        println!("[DEBUG] check_safty result: {}", detector.check_safty(thread_tid, mutex_id));
+    }
+    
+
     let mutex = Arc::clone(process_inner.mutex_list[mutex_id].as_ref().unwrap());
     drop(process_inner);
     drop(process);
@@ -90,7 +119,18 @@ pub fn sys_mutex_unlock(mutex_id: usize) -> isize {
             .tid
     );
     let process = current_process();
-    let process_inner = process.inner_exclusive_access();
+    let mut process_inner = process.inner_exclusive_access();
+
+    // 检测器释放资源
+    if let Some(ref mut detector) = process_inner.deadlock_detector {
+        let current_task = current_task().unwrap();
+        let thread_tid = {
+            let task_inner = current_task.inner_exclusive_access();
+            task_inner.res.as_ref().unwrap().tid  // 从TaskUserRes获取tid
+        };
+        detector.release(thread_tid, mutex_id);
+    }
+
     let mutex = Arc::clone(process_inner.mutex_list[mutex_id].as_ref().unwrap());
     drop(process_inner);
     drop(process);
@@ -127,6 +167,14 @@ pub fn sys_semaphore_create(res_count: usize) -> isize {
             .push(Some(Arc::new(Semaphore::new(res_count))));
         process_inner.semaphore_list.len() - 1
     };
+
+    // 死锁检测集成：注册新的信号量资源
+    if let Some(ref mut detector) = process_inner.deadlock_detector {
+        while detector.resource_count <= id {
+            detector.add_semaphore(res_count);
+        }
+    }
+
     id as isize
 }
 /// semaphore up syscall
@@ -142,8 +190,20 @@ pub fn sys_semaphore_up(sem_id: usize) -> isize {
             .unwrap()
             .tid
     );
+
+    let current_task = current_task().unwrap();
+    let thread_tid = {
+        let task_inner = current_task.inner_exclusive_access();
+        task_inner.res.as_ref().unwrap().tid
+    };
+
     let process = current_process();
-    let process_inner = process.inner_exclusive_access();
+    let mut process_inner = process.inner_exclusive_access();
+
+    if let Some(ref mut detector) = process_inner.deadlock_detector {
+        detector.release(thread_tid, sem_id);
+    }
+
     let sem = Arc::clone(process_inner.semaphore_list[sem_id].as_ref().unwrap());
     drop(process_inner);
     sem.up();
@@ -162,8 +222,21 @@ pub fn sys_semaphore_down(sem_id: usize) -> isize {
             .unwrap()
             .tid
     );
+    
+    let current_task = current_task().unwrap();
+    let thread_tid = {
+        let task_inner = current_task.inner_exclusive_access();
+        task_inner.res.as_ref().unwrap().tid
+    };
     let process = current_process();
-    let process_inner = process.inner_exclusive_access();
+    let mut process_inner = process.inner_exclusive_access();
+
+    // 死锁检测
+    if let Some(ref mut detector) = process_inner.deadlock_detector {
+        if !detector.check_safty(thread_tid, sem_id) {
+            return -0xDEAD;
+        }
+    }
     let sem = Arc::clone(process_inner.semaphore_list[sem_id].as_ref().unwrap());
     drop(process_inner);
     sem.down();
@@ -245,7 +318,19 @@ pub fn sys_condvar_wait(condvar_id: usize, mutex_id: usize) -> isize {
 /// enable deadlock detection syscall
 ///
 /// YOUR JOB: Implement deadlock detection, but might not all in this syscall
-pub fn sys_enable_deadlock_detect(_enabled: usize) -> isize {
+pub fn sys_enable_deadlock_detect(enabled: usize) -> isize {
     trace!("kernel: sys_enable_deadlock_detect NOT IMPLEMENTED");
-    -1
+
+    if enabled != 0 && enabled != 1 {
+        return -1; // 参数不合法
+    }
+
+    let process = current_process();
+    
+    // 调用进程的方法启用/禁用死锁检测
+    match process.enable_deadlock_detect(enabled == 1) {
+        Ok(()) => 0, // 成功
+        Err(_) => -1 // 开启失败
+    }
+    
 }

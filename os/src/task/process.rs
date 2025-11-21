@@ -15,6 +15,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefMut;
 
+use crate::sync::ProcessDeadlockDetector;
+
+
 /// Process Control Block
 pub struct ProcessControlBlock {
     /// immutable
@@ -49,6 +52,9 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+    
+    /// deadlock_detector
+    pub deadlock_detector: Option<ProcessDeadlockDetector>,
 }
 
 impl ProcessControlBlockInner {
@@ -119,6 +125,7 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detector: None,
                 })
             },
         });
@@ -245,6 +252,7 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detector: None,
                 })
             },
         });
@@ -281,5 +289,33 @@ impl ProcessControlBlock {
     /// get pid
     pub fn getpid(&self) -> usize {
         self.pid.0
+    }
+
+    pub fn enable_deadlock_detect(&self, enable: bool) -> Result<(), ()> {
+        let mut inner = self.inner_exclusive_access();
+        
+        if enable {
+            if inner.deadlock_detector.is_none() {
+                let mut detector = ProcessDeadlockDetector::new();
+                 // 为所有已存在的互斥锁注册资源
+                for _ in &inner.mutex_list {
+                    detector.add_mutex();
+                }
+                
+                // 为所有已存在的信号量注册资源
+                for sem_option in &inner.semaphore_list {
+                    if let Some(sem) = sem_option {
+                        detector.add_semaphore(sem.initial_count);
+                    }
+                }
+                
+                inner.deadlock_detector = Some(detector);
+            }
+        }
+        else {
+            inner.deadlock_detector = None;
+        }
+
+        Ok(())
     }
 }

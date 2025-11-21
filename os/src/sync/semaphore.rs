@@ -8,6 +8,8 @@ use alloc::{collections::VecDeque, sync::Arc};
 pub struct Semaphore {
     /// semaphore inner
     pub inner: UPSafeCell<SemaphoreInner>,
+    /// 用户空间传入
+    pub initial_count: usize,
 }
 
 pub struct SemaphoreInner {
@@ -26,6 +28,7 @@ impl Semaphore {
                     wait_queue: VecDeque::new(),
                 })
             },
+            initial_count: res_count,
         }
     }
 
